@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="fr"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#b5562f">
+<link rel="manifest" href="manifest.webmanifest"><link rel="icon" href="icon-192.png">
+<title>Relevés tartelettes</title>
+<style>
+:root{--bg:#f5f1ec;--card:#fff;--ink:#2b2320;--muted:#7a6d64;--brand:#b5562f;--ok:#2e7d4f;--ko:#c0392b;--warn:#d68910;--line:#e6dfd7;color-scheme:light}
+@media (prefers-color-scheme:dark){:root{--bg:#1d1714;--card:#2a221e;--ink:#f3ece6;--muted:#a89a90;--line:#3d332d;color-scheme:dark}}
+*{box-sizing:border-box}html,body{margin:0}
+body{font:16px system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink)}
+#app{max-width:520px;margin:0 auto;padding:calc(12px + env(safe-area-inset-top,0px)) 12px 100px}
+h1{font-size:20px;margin:6px 0 10px}h2{font-size:15px;margin:16px 0 8px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:12px}
+label{display:block;font-size:13px;color:var(--muted);margin:10px 0 4px}
+input,select,textarea{width:100%;font:inherit;font-size:17px;padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
+button{font:inherit;font-size:17px;min-height:50px;border-radius:12px;border:0;padding:0 16px;background:var(--brand);color:#fff;font-weight:600;cursor:pointer;width:100%}
+button.sec{background:transparent;color:var(--brand);border:2px solid var(--brand)}
+button.sm{min-height:40px;font-size:14px}button.sec.on{background:var(--brand);color:#fff}
+.row{display:flex;gap:8px;justify-content:space-between}.row>*{flex:1}
+.badge{display:inline-block;padding:3px 9px;border-radius:99px;font-size:12px;font-weight:600;color:#fff;white-space:nowrap;flex:0 0 auto}
+.ok{background:var(--ok)}.warn{background:var(--warn)}.ko-b{background:var(--ko)}
+.muted{color:var(--muted);font-size:13px}
+table{width:100%;border-collapse:collapse;font-size:14px}td,th{padding:7px 4px;border-bottom:1px solid var(--line);text-align:left}th{color:var(--muted);font-size:12px}
+nav{position:fixed;bottom:0;left:0;right:0;background:var(--card);border-top:1px solid var(--line);display:flex;justify-content:space-around;padding:6px 0 calc(6px + env(safe-area-inset-bottom,0px));z-index:5}
+nav button{background:none;color:var(--muted);width:auto;min-height:48px;font-size:12px;padding:0 8px}nav button.on{color:var(--brand)}
+.ov{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:flex-end;justify-content:center;z-index:9}
+.sh{background:var(--card);width:100%;max-width:520px;border-radius:18px 18px 0 0;padding:16px;max-height:92%;overflow:auto}
+.chip{display:inline-block;margin:3px;padding:9px 12px;border-radius:99px;border:1px solid var(--line);font-size:14px;cursor:pointer}.chip.on{background:var(--brand);color:#fff;border-color:var(--brand)}
+.al{border-left:4px solid var(--warn);background:var(--card);padding:10px;border-radius:8px;font-size:14px;margin-bottom:10px;border:1px solid var(--line);border-left:4px solid var(--warn)}
+.al.ko{border-left-color:var(--ko)}
+.kpi{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;text-align:center;margin-bottom:8px}.kpi b{display:block;font-size:17px}.kpi span{font-size:12px;color:var(--muted)}
+</style></head><body><div id="app"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+<script>
+const APP_V='1.0.0',P=['#b5562f','#2e7d4f','#2a6fb0','#8e44ad','#d68910','#16a085','#7f8c8d'];
+const $=s=>document.querySelector(s),f=(x,d=1)=>x==null||isNaN(x)?'—':x.toFixed(d).replace('.',','),hh=t=>new Date(t).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])),q=s=>JSON.stringify(s).replace(/"/g,'&quot;');
+const num=v=>{if(v==null||v==='')return null;const x=parseFloat(String(v).replace(',','.'));return isNaN(x)?null:x};
+const out=(s,v)=>(s.mi!=null&&v<s.mi)||(s.ma!=null&&v>s.ma);
+const S={cats:[],act:1,lots:{},cur:null,scr:'acc',vm:{},chk:{},dlg:null,pend:null,upd:null},PG={},DG={};
+// ---- Stockage local (IndexedDB) : chaque saisie est écrite immédiatement
+let db;const idb=()=>new Promise((ok,ko)=>{const r=indexedDB.open('tartes',1);r.onupgradeneeded=()=>r.result.createObjectStore('kv');r.onsuccess=()=>{db=r.result;ok()};r.onerror=ko});
+const get=k=>new Promise(ok=>{const r=db.transaction('kv').objectStore('kv').get(k);r.onsuccess=()=>ok(r.result)});
+const put=(k,v)=>new Promise(ok=>{const t=db.transaction('kv','readwrite');t.objectStore('kv').put(v,k);t.oncomplete=ok});
+const saveL=()=>put('lots',S.lots),saveC=()=>put('cats',{list:S.cats,act:S.act});
+// ---- Catalogue intégré (version 1) : [code, diamètre, nom, pâte, garniture, meringue] = [nominal, mini, maxi, temps]
+const SEED=[["LCL080","80 mm","Tartelette Citron Meringuée",[45,43,47,0],[60,57,63,30],[25,23,27,30]],["LCF085","85 mm","Tartelette Fraise Pistache",[48,46,50,0],[65,62,68,30],[20,18,22,30]],["LCC080","80 mm","Tartelette Chocolat Caramel",[45,43,47,0],[70,67,73,30],[15,13.5,16.5,30]],["LCP090","90 mm","Tartelette Pomme Tatin",[55,52.5,57.5,0],[80,76,84,30],[18,16,20,30]],["LCB100","100 mm","Tartelette Framboise Vanille",[62,59,65,0],[85,81,89,30],[22,20,24,30]],["65000","100 mm","Tartelette citron cacahuète",[100,80,120,0],null,[12,8,14,30]]];
+const seedItems=()=>SEED.map(r=>({code:r[0],diam:r[1],nom:r[2],st:r.slice(3).map((x,i)=>x&&{n:['Pâte','Garniture','Meringue'][i],v:x[0],mi:x[1],ma:x[2],dt:x[3]}).filter(Boolean)}));
+// ---- Import du catalogue Excel : colonnes "Nominal X", "Tolérance mini X", "Tolérance maxi X", "Temps X" (X = nom d'étape, séries illimitées)
+const cap=s=>s[0].toUpperCase()+s.slice(1);
+async function parseX(buf){const wb=new ExcelJS.Workbook();await wb.xlsx.load(buf);const ws=wb.worksheets[0],H=[],cols={},ord=[],ci={},warns=[],items=[];
+ const val=c=>{let v=c.value;if(v&&typeof v==='object')v=v.result??v.text??(v.richText?v.richText.map(x=>x.text).join(''):null);return v};
+ ws.getRow(1).eachCell((c,i)=>{H[i]=String(val(c)).trim()});
+ H.forEach((h,i)=>{const m=h.match(/^(?:poids\s+)?(nominale?|tol[ée]rance mini|tol[ée]rance maxi|temps)\s+(.+?)\s*(\(.*\))?$/i);
+  if(m){const t=m[1].toLowerCase(),k=m[2].trim().toLowerCase(),key=t.startsWith('nom')?'v':t.endsWith('mini')?'mi':t.endsWith('maxi')?'ma':'dt';if(!cols[k]){cols[k]={};ord.push(k)}cols[k][key]=i}
+  else{const l=h.toLowerCase();if(l.startsWith('code'))ci.c=i;else if(l.startsWith('diam'))ci.d=i;else if(l==='nom')ci.n=i}});
+ if(!ci.c||!ord.length)throw new Error('Colonnes « Code produit » et « Nominal … » introuvables');
+ ws.eachRow((row,r)=>{if(r<2)return;const cc=row.getCell(ci.c),code=String(val(cc)??'').trim();if(!code)return;
+  if(typeof val(cc)==='number')warns.push(`Code ${code} : numérique converti en texte`);
+  const st=[];ord.forEach(k=>{const g=a=>a==null?null:num(val(row.getCell(a)));const v=g(cols[k].v);
+   if(v==null){warns.push(`${code} : étape « ${cap(k)} » ignorée (pas de nominal)`);return}
+   const mi=g(cols[k].mi),ma=g(cols[k].ma);let dt=g(cols[k].dt);if(mi==null&&ma==null)warns.push(`${code} : « ${cap(k)} » sans tolérance (pas de contrôle)`);
+   if(dt==null)dt=st.length?30:0;st.push({n:cap(k),v,mi,ma,dt})});
+  items.push({code,diam:ci.d?String(val(row.getCell(ci.d))??''):'',nom:String(val(row.getCell(ci.n))??'').trim(),st})});
+ return{items,warns}}
+function diff(a,b){const A=Object.fromEntries(a.map(p=>[p.code,JSON.stringify(p)])),B=Object.fromEntries(b.map(p=>[p.code,JSON.stringify(p)])),K=Object.keys;
+ return `${K(B).filter(k=>!A[k]).length} ajouté(s), ${K(B).filter(k=>A[k]&&A[k]!==B[k]).length} modifié(s), ${K(A).filter(k=>!B[k]).length} retiré(s)`}
+async function imp(file){if(!file)return;if(!window.ExcelJS)return alert('Bibliothèque Excel non chargée : connectez-vous une fois à Internet.');
+ try{const r=await parseX(await file.arrayBuffer());S.pend={name:file.name,...r,diff:diff(S.cats.find(c=>c.v===S.act).items,r.items)}}catch(e){alert('Import impossible : '+e.message)}render()}
+async function saveCat(){const v=Math.max(...S.cats.map(c=>c.v))+1,p=S.pend;S.cats.push({v,name:p.name,d:Date.now(),items:p.items,note:p.diff});S.act=v;S.pend=null;await saveC();render()}
+async function act(v){S.act=v;await saveC();render()}
+// ---- Lots
+const L=()=>S.lots[S.cur],all=l=>l.steps.concat(l.extra),startOf=(l,i)=>l.t0+all(l).slice(0,i+1).reduce((a,s)=>a+s.dt,0)*6e4;
+const sug=()=>{const d=new Date(),j=Math.floor((d-new Date(d.getFullYear(),0,0))/864e5);return String(d.getFullYear()%10)+j+'R'};
+async function start(){const code=$('#lc').value.trim().toUpperCase(),n=$('#on').value.trim().toUpperCase(),pn=$('#op').value.trim();
+ if(!code||!n||!pn)return alert('Complétez le n° de lot et l’opérateur.');if(S.lots[code]&&!confirm('Ce lot existe déjà. Le reprendre ?'))return;
+ if(!S.lots[code]){const c=S.cats.find(x=>x.v===S.act),p=c.items.find(x=>x.code===$('#pr').value);S.lots[code]={code,pc:p.code,nom:p.nom,catV:c.v,t0:Date.now(),steps:p.st.map(s=>({...s,u:'g',d:[]})),extra:[],ops:[],closed:false}}
+ const l=S.lots[code];l.op={n,p:pn};if(!l.ops.includes(n+' '+pn))l.ops.push(n+' '+pn);S.cur=code;S.scr='sai';await saveL();await put('cur',code);render()}
+async function openLot(c){S.cur=c;S.scr='sai';await put('cur',c);render()}
+async function add(i,v,c){const l=L();all(l)[i].d.push({t:Date.now(),v,op:l.op.n+' '+l.op.p,c});await saveL();render()}
+function sub(i){const s=all(L())[i],v=num($('#in'+i).value);if(v==null)return;if(out(s,v)){S.dlg={k:'ht',i,v,r:[],a:[]};render()}else add(i,v,null)}
+const RS=['Dosage trop fort','Dosage insuffisant','Température','Matière première','Réglage machine','Autre'],AC=['Réglage doseur','Arrêt et nettoyage','Changement de lot matière','Contrôle responsable','Remise à température'];
+const chips=(a,k)=>a.map(t=>`<span class="chip" onclick="tg(this,'${k}','${t}')">${t}</span>`).join('');
+function tg(e,k,t){const a=S.dlg[k],i=a.indexOf(t);i<0?a.push(t):a.splice(i,1);e.classList.toggle('on')}
+const sheet=h=>`<div class="ov"><div class="sh">${h}</div></div>`;
+DG.ht=()=>{const d=S.dlg,s=all(L())[d.i];return sheet(`<div class="al ko"><b>Hors tolérance : ${f(d.v)} ${s.u}</b><br>${esc(s.n)} · ${f(s.mi)} – ${f(s.ma)}</div><label>Raison</label>${chips(RS,'r')}<label>Actions pour revenir à la normale (obligatoire)</label>${chips(AC,'a')}<label>Précisions</label><textarea id="cx" rows="3"></textarea><div id="er" class="muted" style="color:var(--ko)" hidden>Indiquez au moins une action ou un commentaire.</div><div class="row" style="margin-top:12px"><button class="sec" onclick="S.dlg=null;render()">Annuler</button><button onclick="okHt()">Valider</button></div>`)};
+function okHt(){const d=S.dlg,x=$('#cx').value.trim();if(!d.a.length&&!x)return $('#er').hidden=false;S.dlg=null;add(d.i,d.v,{r:d.r,a:d.a,x})}
+DG.op=()=>sheet(`<h2 style="margin-top:0">Nouvel opérateur</h2><div class="row"><input id="on" placeholder="Nom"><input id="op" placeholder="Prénom"></div><p class="muted">Il retrouve toutes les saisies précédentes du lot.</p><div class="row"><button class="sec" onclick="S.dlg=null;render()">Annuler</button><button onclick="okOp()">Valider</button></div>`);
+async function okOp(){const n=$('#on').value.trim().toUpperCase(),p=$('#op').value.trim();if(!n||!p)return;const l=L();l.op={n,p};if(!l.ops.includes(n+' '+p))l.ops.push(n+' '+p);S.dlg=null;await saveL();render()}
+DG.ex=()=>sheet(`<h2 style="margin-top:0">Étape exceptionnelle</h2><label>Nom</label><input id="en" placeholder="ex. Température four"><div class="row"><div><label>Unité</label><select id="eu"><option>°C</option><option>g</option><option>kg</option><option>pH</option></select></div><div><label>Temps (min après l’étape précédente)</label><input id="ed" inputmode="numeric" value="15"></div></div><p class="muted">Sans nominal ni tolérance. Courbe indépendante.</p><div class="row"><button class="sec" onclick="S.dlg=null;render()">Annuler</button><button onclick="okEx()">Ajouter</button></div>`);
+async function okEx(){const n=$('#en').value.trim();if(!n)return;L().extra.push({n,u:$('#eu').value,v:null,mi:null,ma:null,dt:num($('#ed').value)||0,d:[]});S.dlg=null;await saveL();render()}
+// ---- Statistiques
+function stats(s){const a=s.d.map(r=>r.v),n=a.length;if(!n)return null;const m=a.reduce((x,y)=>x+y,0)/n,sd=n>1?Math.sqrt(a.reduce((x,y)=>x+(y-m)**2,0)/(n-1)):null,o=a.slice().sort((x,y)=>x-y),ht=a.filter(v=>out(s,v)).length;
+ let cp=null,cpk=null;if(sd>0){if(s.mi!=null&&s.ma!=null)cp=(s.ma-s.mi)/(6*sd);const u=[];if(s.ma!=null)u.push((s.ma-m)/(3*sd));if(s.mi!=null)u.push((m-s.mi)/(3*sd));if(u.length)cpk=Math.min(...u)}
+ return{n,m,sd,mn:o[0],mx:o[n-1],med:n%2?o[(n-1)/2]:(o[n/2-1]+o[n/2])/2,ht,pct:ht/n*100,cp,cpk}}
+// ---- Graphiques avec axes (SVG) ; o.stat = moyenne et ±1 écart-type
+function svg(se,o={}){const W=360,H=220,pl=42,pr=10,pt=20,pb=26,tx=o.tx||'var(--muted)',gr=o.gr||'var(--line)',px=o.px?`width="${o.px[0]}" height="${o.px[1]}"`:'width="100%"';
+ const T=se.flatMap(s=>s.pts.map(p=>p.t)),V=se.flatMap(s=>s.pts.map(p=>p.v).concat([s.mi,s.ma].filter(x=>x!=null)));if(!T.length)return '<div class="muted">Aucune valeur</div>';
+ let t0=Math.min(...T),t1=Math.max(...T);if(t1==t0)t1=t0+18e5;let lo=Math.min(...V),hi=Math.max(...V);const pd=(hi-lo||1)*.1;lo-=pd;hi+=pd;
+ const X=t=>pl+(t-t0)/(t1-t0)*(W-pl-pr),Y=v=>H-pb-(v-lo)/(hi-lo)*(H-pt-pb),ln=(v,c,d,w=1)=>v==null?'':`<line x1="${pl}" x2="${W-pr}" y1="${Y(v)}" y2="${Y(v)}" stroke="${c}" stroke-dasharray="${d}" stroke-width="${w}"/>`;let g='';
+ for(let k=0;k<=4;k++){const v=lo+(hi-lo)*k/4;g+=`<line x1="${pl}" x2="${W-pr}" y1="${Y(v)}" y2="${Y(v)}" stroke="${gr}"/><text x="${pl-4}" y="${Y(v)+4}" text-anchor="end" fill="${tx}" font-size="10">${f(v)}</text>`}
+ for(let k=0;k<=3;k++){const t=t0+(t1-t0)*k/3;g+=`<line x1="${X(t)}" x2="${X(t)}" y1="${pt}" y2="${H-pb}" stroke="${gr}"/><text x="${X(t)}" y="${H-9}" text-anchor="middle" fill="${tx}" font-size="10">${hh(t)}</text>`}
+ se.forEach((s,k)=>{g+=`<text x="${pl+k*95}" y="12" fill="${s.c}" font-size="11" font-weight="bold">● ${esc(s.name)}</text>`+ln(s.mi,s.c,'4 3')+ln(s.ma,s.c,'4 3');
+  if(o.stat&&s.m!=null){g+=ln(s.m,s.c,'0',1.5)+(s.sd?ln(s.m+s.sd,s.c,'1 3')+ln(s.m-s.sd,s.c,'1 3'):'')}
+  g+=`<polyline points="${s.pts.map(p=>X(p.t)+','+Y(p.v)).join(' ')}" fill="none" stroke="${s.c}" stroke-width="2"/>`+s.pts.map(p=>`<circle cx="${X(p.t)}" cy="${Y(p.v)}" r="3.5" fill="${out(s,p.v)?'#c0392b':s.c}"/>`).join('')});
+ return `<svg xmlns="http://www.w3.org/2000/svg" font-family="Arial,sans-serif" viewBox="0 0 ${W} ${H}" ${px}>${g}</svg>`}
+const ser=(s,i)=>{const k=stats(s)||{};return{c:P[i%P.length],name:s.n,u:s.u,raw:s.d,pts:s.d.map(r=>({t:r.t,v:r.v})),mi:s.mi,ma:s.ma,m:k.m,sd:k.sd}};
+const tog=k=>`<div class="row" style="margin-bottom:6px"><button class="sec sm ${S.vm[k]?'':'on'}" onclick="S.vm['${k}']=0;render()">Graphique</button><button class="sec sm ${S.vm[k]?'on':''}" onclick="S.vm['${k}']=1;render()">Valeurs</button></div>`;
+const vw=(k,se,o)=>tog(k)+(S.vm[k]?`<div style="overflow-x:auto"><table>${se.map(s=>`<tr><th colspan="3" style="color:${s.c}">${esc(s.name)}</th></tr>`+s.raw.map(r=>`<tr><td>${hh(r.t)}</td><td>${f(r.v)} ${s.u}</td><td>${esc(r.op)}${r.c?' · corrigé':''}</td></tr>`).join('')).join('')}</table></div>`:svg(se,o));
+// ---- Pages
+const go=s=>{S.scr=s;S.dlg=null;render();scrollTo(0,0)};
+PG.acc=()=>{const c=S.cats.find(x=>x.v===S.act),ls=Object.values(S.lots).sort((a,b)=>b.t0-a.t0);
+ return `<h1>Relevés de poids</h1><div class="card"><b>Nouveau lot</b><label>N° de lot (année + jour + R, modifiable)</label><input id="lc" value="${sug()}"><label>Produit · catalogue v${c.v}</label><select id="pr">${c.items.map(p=>`<option value="${esc(p.code)}">${esc(p.code)} · ${esc(p.nom)}</option>`).join('')}</select><label>Opérateur</label><div class="row"><input id="on" placeholder="Nom"><input id="op" placeholder="Prénom"></div><button style="margin-top:12px" onclick="start()">Démarrer / reprendre le lot</button></div>
+<h2>Lots</h2>${ls.map(l=>`<div class="card"><div class="row" style="align-items:center"><div><b>${esc(l.code)}</b> · ${esc(l.pc)}<div class="muted">${l.ops.length} opérateur(s) · catalogue v${l.catV}</div></div><span class="badge ${l.closed?'ok':'warn'}" style="flex:0 0 auto">${l.closed?'Clôturé':'En cours'}</span></div><button class="sec sm" style="margin-top:8px" onclick="openLot(${q(l.code)})">Ouvrir</button></div>`).join('')||'<p class="muted">Aucun lot.</p>'}
+<button class="sec" onclick="go('cat')">Catalogue produits (v${c.v})</button><label style="margin-top:12px">Restaurer une sauvegarde JSON</label><input type="file" accept=".json" onchange="restore(this.files[0])"><p class="muted">Application v${APP_V}</p>`};
+PG.cat=()=>{const p=S.pend;return `<h1>Catalogue produits</h1><button class="sec sm" onclick="go('acc')">← Retour</button><h2>Versions</h2>${S.cats.slice().reverse().map(c=>`<div class="card"><div class="row" style="align-items:center"><div><b>v${c.v}</b> · ${esc(c.name)}<div class="muted">${new Date(c.d).toLocaleDateString('fr-FR')} · ${c.items.length} produits${c.note?' · '+esc(c.note):''}</div></div>${c.v===S.act?'<span class="badge ok">Active</span>':`<button class="sec sm" style="width:auto;flex:0 0 auto" onclick="act(${c.v})">Activer</button>`}</div></div>`).join('')}
+<h2>Importer une nouvelle version</h2><div class="card"><input type="file" accept=".xlsx" onchange="imp(this.files[0])"><p class="muted">Les lots existants gardent la version utilisée à leur création.</p></div>
+${p?`<div class="card"><b>${esc(p.name)}</b><div class="muted">${p.items.length} produits · ${p.diff}</div><div style="margin:8px 0">${p.warns.map(w=>`<div class="al">${esc(w)}</div>`).join('')}</div><button onclick="saveCat()">Enregistrer comme v${Math.max(...S.cats.map(c=>c.v))+1}</button></div>`:''}`};
+function card(s,i,ex){const l=L(),nx=startOf(l,i)+18e5*s.d.length,late=Date.now()>nx,lim=s.v!=null?`Nominal ${f(s.v,0)} ${s.u} · ${f(s.mi)} – ${f(s.ma)}`:s.mi!=null||s.ma!=null?`Tolérance ${f(s.mi)} – ${f(s.ma)}`:'Sans limite';
+ return `<div class="card"><div class="row" style="align-items:center"><b>${esc(s.n)}</b><span class="badge ${ex?'warn':late?'ko-b':'ok'}" style="flex:0 0 auto">${ex?'Hors catalogue':late?'Relevé dû':'À l’heure'}</span></div><div class="muted">${lim} · prochain ${hh(nx)} (${i?'+'+s.dt+' min après étape précédente':'début du lot'})</div>
+<div class="row" style="margin:8px 0"><input id="in${i}" inputmode="decimal" placeholder="${s.u}" style="font-size:22px;text-align:center"><button style="flex:0 0 80px" onclick="sub(${i})">OK</button></div>
+${s.d.slice(-3).reverse().map(r=>`<div class="muted">${hh(r.t)} · <b>${f(r.v)} ${s.u}</b> · ${esc(r.op)}${r.c?' · corrigé':''}</div>`).join('')}${ex?`<div style="margin-top:8px">${vw('x'+i,[ser(s,i)])}</div>`:''}</div>`}
+PG.sai=()=>{const l=L(),ns=l.steps.length,se=l.steps.map((s,i)=>S.chk[i]===false?null:ser(s,i)).filter(Boolean);
+ return `<div class="card"><div class="row" style="align-items:center"><div><b>Lot ${esc(l.code)}</b><div class="muted">${esc(l.pc)} · ${esc(l.nom)} · catalogue v${l.catV}</div></div><span class="badge ${l.closed?'ok':'warn'}" style="flex:0 0 auto">${l.closed?'Clôturé':'En cours'}</span></div><div class="muted" style="margin-top:6px">Opérateur : <b>${esc(l.op.n+' '+l.op.p)}</b> · ${l.ops.length} sur ce lot</div><button class="sec sm" style="margin-top:8px" onclick="S.dlg={k:'op'};render()">Changer d’opérateur (reprise du lot)</button></div>
+<h2>Étapes</h2>${l.steps.map((s,i)=>card(s,i,0)).join('')}<h2>Graphique commun</h2><div class="card">${l.steps.map((s,i)=>`<label style="display:inline-flex;gap:6px;align-items:center;color:${P[i%P.length]};font-weight:600;margin:2px 12px 6px 0"><input type="checkbox" style="width:auto" ${S.chk[i]===false?'':'checked'} onchange="S.chk[${i}]=this.checked;render()">${esc(s.n)}</label>`).join('')}${vw('com',se)}<div class="muted">Pointillés : min et max de chaque étape.</div></div>
+<h2>Étapes exceptionnelles</h2>${l.extra.map((s,j)=>card(s,ns+j,1)).join('')}<button class="sec" onclick="S.dlg={k:'ex'};render()">+ Ajouter une étape (sans limite)</button>`};
+PG.rel=()=>{const l=L(),R=[];all(l).forEach((s,i)=>s.d.forEach(r=>R.push({...r,s,i})));R.sort((a,b)=>a.t-b.t);
+ return `<h1>Relevés · ${esc(l.code)}</h1><div class="muted" style="margin-bottom:8px">${R.length} enregistrements · sauvegardés à chaque saisie</div><div class="card" style="overflow-x:auto"><table><tr><th>Heure</th><th>Étape</th><th>Valeur</th><th>Opérateur</th><th></th></tr>${R.map(r=>`<tr><td>${hh(r.t)}</td><td>${esc(r.s.n)}</td><td>${f(r.v)} ${r.s.u}</td><td>${esc(r.op)}</td><td>${r.c?'<span class="badge warn">Corrigé</span>':out(r.s,r.v)?'<span class="badge ko-b">HT</span>':'<span class="badge ok">OK</span>'}</td></tr>`).join('')}</table></div>`};
+PG.sta=()=>{const l=L();return `<h1>Statistiques · ${esc(l.code)}</h1>`+all(l).map((s,i)=>{const k=stats(s),c=(a,b)=>`<div><b>${b}</b><span>${a}</span></div>`;if(!k)return `<div class="card"><b>${esc(s.n)}</b><div class="muted">Aucune valeur</div></div>`;
+ return `<div class="card"><b>${esc(s.n)}</b><div class="kpi" style="margin-top:8px">${c('Moyenne',f(k.m,2))}${c('Écart-type',f(k.sd,2))}${c('Médiane',f(k.med,2))}${c('Min',f(k.mn,2))}${c('Max',f(k.mx,2))}${c('% hors tol.',f(k.pct))}${c('Cp',f(k.cp,2))}${c('Cpk',f(k.cpk,2))}${c('Relevés',k.n)}</div>${k.cpk!=null&&k.cpk<1.33?'<div class="al">Cpk inférieur à 1,33 : procédé à surveiller.</div>':''}${vw('s'+i,[ser(s,i)],{stat:1})}<div class="muted">Trait plein : moyenne · pointillés fins : ±1 écart-type</div></div>`}).join('')};
+const expN=(l,i,end)=>{const s=all(l)[i];return i>=l.steps.length?s.d.length:Math.max(s.d.length,Math.floor((end-startOf(l,i))/18e5)+1)};
+PG.fin=()=>{const l=L(),end=Date.now(),mis=l.steps.map((s,i)=>({n:s.n,m:expN(l,i,end)-s.d.length})).filter(x=>x.m>0);
+ return `<h1>Clôture du lot ${esc(l.code)}</h1>${mis.length?`<div class="al">Relevés non réalisés : ${mis.map(x=>`${esc(x.n)} (${x.m})`).join(', ')}. La clôture reste possible ; ils apparaîtront « Non réalisé ».</div>`:'<div class="al" style="border-left-color:var(--ok)">Aucun relevé manquant.</div>'}
+<div class="card"><b>Fichier de fin de lot</b><div class="muted">Onglets : Lot, Relevés, Corrections, Statistiques, Graphique (écart-type inclus)</div><button style="margin-top:10px" onclick="exportX(1)">Clôturer et exporter le fichier Excel</button><button class="sec" style="margin-top:8px" onclick="exportX(0)">Exporter sans clôturer</button><button class="sec" style="margin-top:8px" onclick="backup()">Sauvegarde JSON</button></div>`};
+const nav=()=>`<nav>${[['sai','✏️','Saisie'],['rel','📋','Relevés'],['sta','📈','Stats'],['fin','✅','Clôture'],['acc','🏠','Accueil']].map(([k,e,t])=>`<button class="${S.scr===k?'on':''}" onclick="go('${k}')">${e}<br>${t}</button>`).join('')}</nav>`;
+function render(){if(!S.cats.length)return;const has=S.cur&&!['acc','cat'].includes(S.scr);if(has&&!L())S.scr='acc';
+ $('#app').innerHTML=(S.upd?`<div class="al">Nouvelle version de l’application disponible.<button class="sm" style="margin-top:8px" onclick="S.upd.postMessage('skip')">Mettre à jour</button></div>`:'')+PG[S.scr]()+(S.dlg?DG[S.dlg.k]():'')+(has?nav():'')}
+// ---- Export Excel (ExcelJS) et sauvegarde
+const dtf=t=>new Date(t).toLocaleString('fr-FR'),dl=(blob,n)=>{const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=n;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),9e3)};
+const png=s=>new Promise(ok=>{const im=new Image();im.onload=()=>{const c=document.createElement('canvas');c.width=720;c.height=440;const x=c.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,720,440);x.drawImage(im,0,0,720,440);ok(c.toDataURL('image/png').split(',')[1])};im.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(s)});
+async function exportX(close){if(!window.ExcelJS)return alert('Bibliothèque Excel non chargée : connectez-vous une fois à Internet.');
+ const l=L();if(close&&!l.closed){l.closed=true;l.t1=Date.now();await saveL()}const end=l.t1||Date.now(),A=all(l),wb=new ExcelJS.Workbook();
+ const sh=(n,h,rows)=>{const w=wb.addWorksheet(n);if(h){const r=w.addRow(h);r.font={bold:true,color:{argb:'FFFFFFFF'}};r.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF7A4A2E'}}}rows.forEach(r=>w.addRow(r));w.columns.forEach(c=>c.width=18);return w};
+ sh('Lot',null,[['Lot',l.code],['Produit',l.pc+' · '+l.nom],['Catalogue','version '+l.catV],['Début',dtf(l.t0)],['Fin',dtf(end)],['Opérateurs',l.ops.join(', ')],['Application','v'+APP_V]]).getColumn(1).font={bold:true};
+ const R=[],C=[],ST=[];A.forEach((s,i)=>{const ex=i>=l.steps.length,n=expN(l,i,end);for(let k=0;k<n;k++){const r=s.d[k];R.push([l.code,l.pc,s.n,k+1,ex?'':dtf(startOf(l,i)+18e5*k),r?dtf(r.t):'',r?r.v:null,s.u,s.v,s.mi,s.ma,!r?'Non réalisé':ex?'Hors catalogue':out(s,r.v)?'Hors tolérance (corrigé)':'Conforme',r?r.op:''])}
+  s.d.forEach(r=>r.c&&C.push([s.n,dtf(r.t),r.v,r.op,r.c.r.join(', '),r.c.a.join(', '),r.c.x]));const k=stats(s)||{};
+  ST.push([s.n,s.u,s.v,s.mi,s.ma,n,s.d.length,n-s.d.length,k.m,k.sd,k.med,k.mn,k.mx,k.mx==null?null:k.mx-k.mn,k.pct,k.cp,k.cpk,k.sd!=null?k.m-3*k.sd:null,k.sd!=null?k.m+3*k.sd:null])});
+ sh('Relevés',['Lot','Produit','Étape','N°','Heure prévue','Heure réelle','Valeur','Unité','Nominal','Mini','Maxi','Statut','Opérateur'],R);
+ sh('Corrections',['Étape','Heure','Valeur','Opérateur','Raisons','Actions','Précisions'],C);
+ sh('Statistiques',['Étape','Unité','Nominal','Mini','Maxi','Attendus','Réalisés','Manquants','Moyenne','Écart-type','Médiane','Min','Max','Étendue','% hors tol.','Cp','Cpk','Moy − 3σ','Moy + 3σ'],ST).eachRow((r,n)=>n>1&&r.eachCell(c=>{if(typeof c.value==='number')c.numFmt='0.00'}));
+ const g=wb.addWorksheet('Graphique');let row=0;for(let i=0;i<A.length;i++){if(!A[i].d.length)continue;const id=wb.addImage({base64:await png(svg([ser(A[i],i)],{stat:1,tx:'#444',gr:'#ddd',px:[720,440]})),extension:'png'});g.addImage(id,{tl:{col:0,row},ext:{width:720,height:440}});row+=24}
+ g.getCell('A'+(row+1)).value='Trait plein : moyenne · pointillés fins : ±1 écart-type · pointillés espacés : tolérances';
+ const d=new Date(end),p=n=>String(n).padStart(2,'0');dl(new Blob([await wb.xlsx.writeBuffer()]),`${l.code}_${l.pc}_${String(d.getFullYear()).slice(2)}${p(d.getMonth()+1)}${p(d.getDate())}.xlsx`);render()}
+const backup=()=>dl(new Blob([JSON.stringify(S.lots)],{type:'application/json'}),'sauvegarde_releves_'+Date.now()+'.json');
+async function restore(file){if(!file)return;try{Object.assign(S.lots,JSON.parse(await file.text()));await saveL();alert('Sauvegarde restaurée.');render()}catch(e){alert('Fichier invalide.')}}
+// ---- Démarrage, mises à jour de l'application
+(async()=>{await idb();navigator.storage?.persist?.();const c=await get('cats');if(c){S.cats=c.list;S.act=c.act}else{S.cats=[{v:1,name:'Catalogue exemple intégré',d:Date.now(),items:seedItems(),note:''}];S.act=1;await saveC()}
+ S.lots=(await get('lots'))||{};const cu=await get('cur');if(cu&&S.lots[cu]&&!S.lots[cu].closed){S.cur=cu;S.scr='sai'}render()})();
+try{navigator.serviceWorker.register('sw.js').then(r=>r.addEventListener('updatefound',()=>{const w=r.installing;w.addEventListener('statechange',()=>{if(w.state==='installed'&&navigator.serviceWorker.controller){S.upd=w;render()}})})).catch(()=>{});navigator.serviceWorker.addEventListener('controllerchange',()=>location.reload())}catch(e){}
+setInterval(()=>{if(!S.dlg&&['sai'].includes(S.scr)&&!document.activeElement?.matches('input,textarea'))render()},6e4);
+</script></body></html>
