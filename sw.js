@@ -1,6 +1,6 @@
 // Changer APP_V à chaque nouvelle version : les postes proposent alors la mise à jour
-const APP_V='3.0.0',CACHE='releves-'+APP_V;
-const LOCAL=['./','index.html','manifest.webmanifest','icon-192.png','icon-512.png'];
+const APP_V='3.1.0',CACHE='releves-'+APP_V;
+const LOCAL=['./','index.html','manifest.webmanifest','icon-192.png','icon-512.png','icon-maskable-192.png','icon-maskable-512.png'];
 const LIB='https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js';
 self.addEventListener('install',e=>e.waitUntil((async()=>{const c=await caches.open(CACHE);await c.addAll(LOCAL);
  try{await c.put(LIB,await fetch(new Request(LIB,{mode:'no-cors'})))}catch(_){}})()));
